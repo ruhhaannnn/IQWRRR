@@ -1,0 +1,793 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IQWR | ISMU QOILA WAR ROOM</title>
+    
+    <link href="https://unpkg.com/maplibre-gl@3.3.1/dist/maplibre-gl.css" rel="stylesheet" />
+    <script src="https://unpkg.com/maplibre-gl@3.3.1/dist/maplibre-gl.js"></script>
+
+    <style>
+        html { scroll-behavior: smooth; }
+
+        :root {
+            --bg-base: #0a0a0a;
+            --bg-panel: #141414;
+            --text-primary: #e5e5e5;
+            --text-muted: #888888;
+            --accent: #2563eb;
+            --border-color: #262626;
+            --spiking: #ef4444;
+            --normal: #22c55e;
+            --warn: #f59e0b;
+            --panel-bg: rgba(12, 12, 12, 0.98);
+            --text-main: #f8fafc;
+            --font-mono: 'SF Mono', 'Monaco', monospace;
+        }
+
+        body {
+            background-color: var(--bg-base); color: var(--text-primary);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0; padding: 0; padding-bottom: 60px; line-height: 1.5;
+            overflow-x: hidden;
+        }
+
+        /* Standard hiding for non-map tabs */
+        .hidden-tab { display: none !important; }
+
+        header {
+            background-color: var(--bg-panel); padding: 12px 20px;
+            border-bottom: 1px solid var(--border-color); display: flex;
+            align-items: center; position: sticky; top: 0; z-index: 1000;
+        }
+
+        h1 { margin: 0; font-size: 1.3rem; font-weight: 700; letter-spacing: 2px; }
+
+        .pulse {
+            height: 8px; width: 8px; background-color: var(--normal);
+            border-radius: 50%; display: inline-block; margin-right: 15px;
+            box-shadow: 0 0 8px var(--normal); animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
+
+        /* TICKER */
+        .ticker-wrap {
+            width: 100%; background-color: var(--spiking); color: #ffffff;
+            padding: 6px 0; overflow: hidden; white-space: nowrap;
+            font-weight: bold; font-family: var(--font-mono); font-size: 0.8rem;
+            border-bottom: 2px solid #b91c1c; display: flex; align-items: center;
+        }
+        .ticker-move { display: inline-block; padding-left: 100%; animation: ticker linear infinite; }
+        .ticker-move:hover { animation-play-state: paused; }
+        .ticker-item { margin-right: 50px; }
+        @keyframes ticker { 0% { transform: translateX(0); } 100% { transform: translateX(-100%); } }
+
+        /* MAP SECTION */
+        .map-wrapper {
+            display: flex; flex-direction: row; 
+            width: 100%; height: calc(100vh - 120px); min-height: 600px;
+        }
+
+        #map { flex: 1; height: 100%; background: #000; }
+
+        .map-panel {
+            width: 380px; height: 100%;
+            background: var(--panel-bg); border-left: 1px solid var(--border-color);
+            display: flex; flex-direction: column; z-index: 10;
+            font-family: var(--font-mono);
+        }
+
+        @media (max-width: 900px) {
+            .map-wrapper { flex-direction: column; height: auto; }
+            #map { height: 50vh; min-height: 400px; }
+            .map-panel { width: 100%; height: auto; max-height: 500px; border-left: none; border-top: 1px solid var(--border-color); }
+        }
+
+        .map-panel .header { padding: 12px 15px; border-bottom: 1px solid var(--border-color); background: rgba(0,0,0,0.6); }
+        .header-title { display: flex; justify-content: space-between; align-items: center; font-weight: bold; font-size: 0.85rem; color: var(--text-main); }
+        .live-indicator { color: #10b981; display: flex; align-items: center; gap: 6px; font-size: 0.7rem; background: rgba(16, 185, 129, 0.1); padding: 4px 8px; border-radius: 4px; border: 1px solid rgba(16, 185, 129, 0.3); }
+        
+        .legend { display: flex; gap: 10px; font-size: 0.65rem; color: var(--text-muted); padding: 0; margin-top: 8px; flex-wrap: wrap; }
+        .legend-item { display: flex; align-items: center; gap: 4px; }
+        .l-box { width: 8px; height: 8px; border-radius: 50%; }
+        .l-red { background: #ef4444; box-shadow: 0 0 5px #ef4444;} 
+        .l-blue { background: #3b82f6; box-shadow: 0 0 5px #3b82f6;} 
+        .l-orange { background: #f97316; box-shadow: 0 0 5px #f97316;}
+        .l-grey { background: #9ca3af; box-shadow: 0 0 5px #9ca3af;}
+
+        .time-filters { display: flex; padding: 8px; gap: 4px; border-bottom: 1px solid var(--border-color); background: rgba(0,0,0,0.2); }
+        .filter-btn { flex: 1; background: rgba(255, 255, 255, 0.05); color: var(--text-muted); border: 1px solid transparent; padding: 6px 0; font-family: var(--font-mono); font-size: 0.7rem; cursor: pointer; border-radius: 4px; font-weight: bold; transition: 0.2s;}
+        .filter-btn:hover { background: rgba(255,255,255,0.1);}
+        .filter-btn.active { background: rgba(255, 255, 255, 0.1); border-color: var(--text-main); color: var(--text-main); }
+
+        .feed-container { padding: 12px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; font-family: var(--font-mono); }
+        .feed-entry { border-left: 3px solid #f59e0b; padding-left: 10px; font-size: 0.75rem; background: rgba(255,255,255,0.02); padding-top: 6px; padding-bottom: 6px; color: var(--text-main); cursor: pointer; transition: 0.2s; }
+        .feed-entry:hover { background: rgba(255,255,255,0.08); }
+        .feed-entry.missile { border-left-color: #ef4444; } .feed-entry.siren { border-left-color: #3b82f6; } .feed-entry.drone { border-left-color: #f97316; } .feed-entry.intercept { border-left-color: #9ca3af; }
+        .entry-time { font-weight: bold; font-size: 0.65rem; margin-bottom: 3px; display: flex; justify-content: space-between; }
+        .entry-desc { color: #cbd5e1; line-height: 1.3; }
+
+        /* FIXED ZOOM-STABLE DOT MARKERS (30% Smaller - 7px) */
+        .map-dot {
+            width: 7px; height: 7px; border-radius: 50%; 
+            position: relative; cursor: pointer; 
+            box-shadow: 0 0 3px rgba(0,0,0,0.9);
+        }
+        
+        .map-pulse-ring {
+            position: absolute;
+            top: 50%; left: 50%; 
+            transform: translate(-50%, -50%);
+            width: 24px; height: 24px;
+            border: 2px solid; border-radius: 50%;
+            animation: map-pulse 1.5s infinite ease-out; 
+            pointer-events: none;
+            box-sizing: border-box;
+        }
+
+        @keyframes map-pulse {
+            0% { transform: translate(-50%, -50%) scale(0.3); opacity: 1; }
+            100% { transform: translate(-50%, -50%) scale(1); opacity: 0; }
+        }
+
+        /* Map Popups */
+        .maplibregl-popup-content { 
+            background: rgba(15, 15, 15, 0.98); color: var(--text-main); 
+            border: 1px solid #333; border-radius: 6px; font-family: var(--font-mono); 
+            font-size: 0.8rem; padding: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.9);
+            max-width: 260px; z-index: 1000;
+        }
+        .maplibregl-popup-tip { border-top-color: rgba(15, 15, 15, 0.98) !important; }
+        .maplibregl-popup-close-button { color: #fff; font-size: 16px; padding: 4px; }
+
+        /* DASHBOARD GRID */
+        .dashboard {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            grid-auto-rows: 400px; grid-auto-flow: dense; gap: 20px; padding: 20px;
+            max-width: 1900px; margin: 0 auto;
+        }
+        .panel-wide { grid-column: span 1; } .panel-tall { grid-row: span 2; } 
+        @media (min-width: 1150px) { .panel-wide { grid-column: span 2; } }
+
+        .panel {
+            background-color: var(--bg-panel); border: 1px solid var(--border-color);
+            border-radius: 6px; display: flex; flex-direction: column; height: 100%; 
+        }
+        .panel-header {
+            padding: 10px 14px; border-bottom: 1px solid var(--border-color);
+            display: flex; justify-content: space-between; align-items: center;
+            background: #1a1a1a; font-size: 0.85rem; font-weight: 600; color: #fff; text-transform: uppercase;
+        }
+        .panel-header span { font-size: 0.65rem; color: var(--text-muted); font-weight: normal; text-transform: none; }
+        .panel-content { flex: 1 1 auto; overflow-y: auto; position: relative; }
+        .panel-content iframe, .tradingview-widget-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none; }
+
+        .sc-list-item { padding: 12px 16px; border-bottom: 1px dashed var(--border-color); display: flex; gap: 10px; font-size: 0.8rem; }
+        .sc-list-item:hover { background-color: #1e1e1e; }
+        .icon-warn { color: var(--warn); font-weight: bold; }
+        .icon-alert { color: var(--spiking); font-weight: bold; }
+        .sc-content a { color: var(--text-primary); text-decoration: none; font-weight: 500; }
+        .sc-meta { font-size: 0.7rem; color: var(--text-muted); margin-top: 4px; }
+        
+        .summary-list { padding: 0 20px; list-style-type: disc; color: #d1d5db; font-size: 0.85rem; margin-top: 15px; }
+        .summary-list li { margin-bottom: 12px; line-height: 1.5; }
+
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: var(--bg-panel); }
+        ::-webkit-scrollbar-thumb { background: #444; border-radius: 10px; }
+
+        /* ULTRA-COMPACT BOTTOM NAV */
+        .bottom-nav {
+            position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+            display: flex; gap: 4px; background: rgba(10, 10, 10, 0.95);
+            backdrop-filter: blur(12px); padding: 4px 10px; border-radius: 30px;
+            border: 1px solid #eab308; box-shadow: 0 0 10px rgba(234, 179, 8, 0.4);
+            z-index: 10000;
+        }
+        .nav-item {
+            display: flex; align-items: center; gap: 6px; color: #f8fafc;
+            text-decoration: none; font-family: var(--font-mono); font-size: 0.65rem;
+            font-weight: 600; padding: 6px 12px; border-radius: 20px; text-transform: uppercase;
+            cursor: pointer; transition: 0.2s;
+        }
+        .nav-item:hover { background: rgba(234, 179, 8, 0.15); color: #eab308; }
+        .nav-item.active-nav { background: rgba(234, 179, 8, 0.25); color: #eab308; box-shadow: inset 0 0 5px rgba(234,179,8,0.5); }
+        .nav-item svg { width: 14px; height: 14px; stroke: currentColor; }
+    </style>
+</head>
+<body>
+
+    <nav class="bottom-nav">
+        <a onclick="switchTab('map-section', this)" class="nav-item active-nav">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"></polygon><line x1="9" y1="3" x2="9" y2="18"></line><line x1="15" y1="6" x2="15" y2="21"></line></svg>
+            <span>Map</span>
+        </a>
+        <a onclick="switchTab('news-section', this)" class="nav-item">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2z"></path><polyline points="12 19 12 11 15 14"></polyline><polyline points="9 14 12 11"></polyline></svg>
+            <span>News</span>
+        </a>
+        <a onclick="switchTab('live-section', this)" class="nav-item">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4"></path><path d="M12 8h.01"></path></svg>
+            <span>Live</span>
+        </a>
+        <a onclick="switchTab('stats-section', this)" class="nav-item">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
+            <span>Stats</span>
+        </a>
+    </nav>
+
+    <header>
+        <div style="display: flex; align-items: center;">
+            <span class="pulse"></span>
+            <div style="display: flex; flex-direction: column; justify-content: center;">
+                <div style="display: flex; align-items: baseline; gap: 15px;">
+                    <h1 style="margin: 0; line-height: 1;">IQWR</h1>
+                    <span style="font-size: 0.8rem; color: var(--normal); font-family: var(--font-mono); font-weight: bold;" id="clock">Syncing Time...</span>
+                </div>
+                <span style="font-size: 0.6rem; color: var(--text-muted); font-family: var(--font-mono); text-transform: uppercase; margin-top: 2px;">(Ismu Qoila War Room)</span>
+            </div>
+        </div>
+    </header>
+
+    <div class="ticker-wrap">
+        <div class="ticker-move" id="live-ticker">
+            <span class="ticker-item">🚨 ESTABLISHING SECURE DATALINK... KINETIC SYSTEMS ONLINE...</span>
+        </div>
+    </div>
+
+    <div id="map-section" class="tab-content map-wrapper">
+        <div id="map"></div>
+        <div class="map-panel">
+            <div class="header">
+                <div class="header-title">
+                    <span>COMBAT THEATER MONITOR</span>
+                    <span class="live-indicator">
+                        <div style="width: 6px; height: 6px; background: #10b981; border-radius: 50%;"></div> 
+                        POLL IN: <span id="timer-display" style="font-weight:bold; margin-left:4px;">10:00</span>
+                    </span>
+                </div>
+                <div class="legend">
+                    <div class="legend-item"><div class="l-box l-red"></div> MISSILE</div>
+                    <div class="legend-item"><div class="l-box l-blue"></div> SIREN</div>
+                    <div class="legend-item"><div class="l-box l-orange"></div> DRONE</div>
+                    <div class="legend-item"><div class="l-box l-grey"></div> INTERCEPT</div>
+                </div>
+            </div>
+            
+            <div class="time-filters">
+                <button class="filter-btn" onclick="setFilter(24)" id="btn-24">24H</button>
+                <button class="filter-btn" onclick="setFilter(96)" id="btn-96">4 DAYS</button>
+                <button class="filter-btn active" onclick="setFilter(720)" id="btn-720">30 DAYS</button>
+            </div>
+
+            <div class="feed-container" id="feed">
+                <div style="text-align: center; color: #888; margin-top: 20px;">Fetching Tactical Baseline...</div>
+            </div>
+        </div>
+    </div>
+
+    <div id="news-section" class="tab-content hidden-tab dashboard">
+        <div class="panel">
+            <div class="panel-header">Summary This Hour</div>
+            <div class="panel-content">
+                <ul class="summary-list" id="summary-feed">
+                    <li>Establishing instantaneous uplink to nodes...</li>
+                </ul>
+            </div>
+        </div>
+        <div class="panel panel-tall">
+            <div class="panel-header">Latest News <span>Multi-Source (16 Hours)</span></div>
+            <div class="panel-content" id="news-feed">
+                <div style="padding: 20px; color: var(--text-muted); text-align: center;">Fetching secure OSINT feeds...</div>
+            </div>
+        </div>
+        <div class="panel panel-tall">
+            <div class="panel-header">Iran News <span>Press TV (16 Hours)</span></div>
+            <div class="panel-content" id="iran-news-feed">
+                <div style="padding: 20px; color: var(--text-muted); text-align: center;">Syncing Press TV regional coverage...</div>
+            </div>
+        </div>
+        <div class="panel panel-tall">
+            <div class="panel-header">Media Archive <span>Images & Video (Past 24H)</span></div>
+            <div class="panel-content" id="media-feed">
+                <div style="padding: 20px; color: var(--text-muted); text-align: center;">Extracting tactical media...</div>
+            </div>
+        </div>
+    </div>
+
+    <div id="live-section" class="tab-content hidden-tab dashboard">
+        <div class="panel panel-wide panel-tall">
+            <div class="panel-header">Al Jazeera English <span>Live Network</span></div>
+            <div class="panel-content" style="background: #000;">
+                <iframe src="https://www.youtube.com/embed/live_stream?channel=UCNye-wNBqNL5ZzHSJj3l8Bg&autoplay=1&mute=1&playsinline=1" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
+            </div>
+        </div>
+        <div class="panel panel-wide panel-tall">
+            <div class="panel-header">Live Cam - Tel Aviv <span>Israel Regional Feed</span></div>
+            <div class="panel-content" style="background: #000;">
+                <iframe src="https://www.youtube.com/embed/4E-iFtUM2kk?autoplay=1&mute=1&playsinline=1" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
+            </div>
+        </div>
+    </div>
+
+    <div id="stats-section" class="tab-content hidden-tab dashboard">
+        <div class="panel panel-wide">
+            <div class="panel-header">Macro Markets <span>Global Assets (Real-Time)</span></div>
+            <div class="panel-content">
+                <iframe src="https://s.tradingview.com/embed-widget/market-overview/?locale=en&colorTheme=dark&isTransparent=true&showSymbolLogo=true&tabs=%5B%7B%22title%22%3A%22Global%20Assets%22%2C%22symbols%22%3A%5B%7B%22s%22%3A%22BITSTAMP%3ABTCUSD%22%2C%22d%22%3A%22Bitcoin%20(USD)%22%7D%2C%7B%22s%22%3A%22TVC%3AUSOIL%22%2C%22d%22%3A%22WTI%20Crude%20Oil%20(USD)%22%7D%2C%7B%22s%22%3A%22TVC%3AGOLD%22%2C%22d%22%3A%22Gold%20(USD)%22%7D%2C%7B%22s%22%3A%22FOREXCOM%3ASPXUSD%22%2C%22d%22%3A%22S%26P%20500%20(USD)%22%7D%5D%2C%22originalTitle%22%3A%22Indices%22%7D%5D" width="100%" height="100%" frameborder="0" allowtransparency="true" scrolling="no"></iframe>
+            </div>
+        </div>
+        <div class="panel panel-tall">
+            <div class="panel-header">Live Maritime AIS <span>Strait of Hormuz (60s Sync)</span></div>
+            <div class="panel-content">
+                <iframe class="auto-refresh-iframe" src="https://www.marinetraffic.com/en/ais/embed/zoom:8/centery:26.7/centerx:56.2/maptype:4/shownames:false/mmsi:0/shipid:0/fleet:/fleet_id:/vtypes:/showmenu:false/remember:false"></iframe>
+            </div>
+        </div>
+        <div class="panel">
+            <div class="panel-header">Traffic By Region <span>Internal Nodes (60s Sync)</span></div>
+            <div class="panel-content">
+                <iframe class="auto-refresh-iframe" src="https://radar.cloudflare.com/embed/TrafficVolumeByRegionXY?dateRange=1d&location=ir&metric=HTTP_REQUESTS&theme=dark"></iframe>
+            </div>
+        </div>
+        <div class="panel">
+            <div class="panel-header">Device Connectivity <span>Mobile vs Desktop (60s Sync)</span></div>
+            <div class="panel-content">
+                <iframe class="auto-refresh-iframe" src="https://radar.cloudflare.com/embed/MobileDesktopStackedBar?dateRange=1d&location=ir&theme=dark"></iframe>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- TAB SWITCHING LOGIC ---
+        function switchTab(tabId, el) {
+            document.querySelectorAll('.tab-content').forEach(tab => tab.classList.add('hidden-tab'));
+            document.getElementById(tabId).classList.remove('hidden-tab');
+            
+            document.querySelectorAll('.nav-item').forEach(nav => nav.classList.remove('active-nav'));
+            if(el) el.classList.add('active-nav');
+            
+            if(tabId === 'map-section' && map) {
+                setTimeout(() => { map.resize(); }, 100);
+            }
+        }
+
+        // --- PROXY ENGINE ---
+        async function fetchWithFastestProxy(targetUrl, type = 'json') {
+            const timeWindow = Math.floor(Date.now() / 30000); 
+            const sep = targetUrl.includes('?') ? '&' : '?';
+            const freshUrl = `${targetUrl}${sep}_cb=${timeWindow}`;
+            
+            const proxies = [
+                `https://api.allorigins.win/raw?url=${encodeURIComponent(freshUrl)}`,
+                `https://corsproxy.io/?url=${encodeURIComponent(freshUrl)}`,
+                `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(freshUrl)}`
+            ];
+
+            const requests = proxies.map(proxy => 
+                fetch(proxy, { cache: "no-store" }).then(res => {
+                    if (!res.ok) throw new Error("Proxy error");
+                    return type === 'json' ? res.json() : res.text();
+                }).then(data => {
+                    if (type === 'json' && data && (data.data || Array.isArray(data))) return data;
+                    if (type === 'html' && data && data.includes('<html')) return data;
+                    throw new Error("Invalid format");
+                })
+            );
+
+            try { return await Promise.any(requests); } 
+            catch (e) { throw new Error("All uplinks failed."); }
+        }
+
+        setInterval(() => { document.getElementById('clock').innerText = new Date().toUTCString(); }, 1000);
+
+        // --- TELEGRAM SCRAPER ---
+        async function scrapeTelegramChannel(channel, extractMedia = false) {
+            try {
+                const htmlText = await fetchWithFastestProxy(`https://t.me/s/${channel}`, 'html');
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(htmlText, 'text/html');
+                const messages = doc.querySelectorAll('.tgme_widget_message');
+                let posts = [];
+                
+                for(let i = messages.length - 1; i >= 0; i--) {
+                    const msg = messages[i];
+                    const textEl = msg.querySelector('.tgme_widget_message_text');
+                    const dateEl = msg.querySelector('time.time');
+                    
+                    if(textEl && dateEl) {
+                        const dateStr = dateEl.getAttribute('datetime');
+                        const msgDate = new Date(dateStr);
+                        let rawText = textEl.innerText.replace(/(<([^>]+)>)/gi, "");
+                        let text = rawText.replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, '').trim(); 
+                        
+                        const link = msg.getAttribute('data-post') ? 'https://t.me/' + msg.getAttribute('data-post') : `https://t.me/s/${channel}`;
+                        
+                        let mediaHTML = '';
+                        if (extractMedia) {
+                            const photoWrap = msg.querySelector('.tgme_widget_message_photo_wrap');
+                            if (photoWrap && photoWrap.style.backgroundImage) {
+                                const urlMatch = photoWrap.style.backgroundImage.match(/url\(['"]?(.*?)['"]?\)/);
+                                if (urlMatch && urlMatch[1]) {
+                                    mediaHTML = `<img src="${urlMatch[1]}" style="width:100%; border-radius:4px; margin-top:8px; border: 1px solid var(--border-color);" />`;
+                                }
+                            }
+                            const videoWrap = msg.querySelector('video');
+                            if (videoWrap && videoWrap.src) {
+                                mediaHTML = `<video src="${videoWrap.src}" controls playsinline style="width:100%; max-height:300px; border-radius:4px; margin-top:8px; background: #000; border: 1px solid var(--border-color);"></video>`;
+                            }
+                        }
+                        posts.push({ channel, text, date: msgDate, link, mediaHTML });
+                    }
+                }
+                return posts;
+            } catch (error) { return []; }
+        }
+
+        // Ticker (PressTV ONLY - Under 1 Hour - Max 10 - FULL TEXT)
+        async function fetchTicker() {
+            try {
+                const posts = await scrapeTelegramChannel('presstv', false);
+                let validPosts = posts.filter(p => (Date.now() - p.date.getTime()) <= 3600000).slice(0, 10);
+                if(validPosts.length === 0) validPosts = posts.slice(0, 3); 
+                
+                let htmlString = '';
+                validPosts.forEach(p => {
+                    let fullText = p.text.replace(/\n/g, ' - '); // No substring cutting
+                    htmlString += `<span class="ticker-item">🚨 [PRESS TV] ${fullText.toUpperCase()}</span>`;
+                });
+                
+                const tickerEl = document.getElementById('live-ticker');
+                tickerEl.style.animationDuration = `${Math.max(htmlString.length * 0.20, 30)}s`;
+                tickerEl.innerHTML = htmlString + htmlString;
+            } catch(e) {}
+        }
+
+        // News: Summary (Short text, No Source prefix, < 1 Hr)
+        async function fetchSummary() {
+            try {
+                const [presstv, meObs, rnintel] = await Promise.all([
+                    scrapeTelegramChannel('presstv', false), 
+                    scrapeTelegramChannel('me_observer_TG', false),
+                    scrapeTelegramChannel('rnintel', false)
+                ]);
+                let recent = [...presstv, ...meObs, ...rnintel]
+                    .filter(p => (Date.now() - p.date.getTime()) < 3600000)
+                    .sort((a,b) => b.date - a.date);
+
+                if (!recent.length) return document.getElementById('summary-feed').innerHTML = `<li>No reports in the last 60 minutes.</li>`;
+                
+                let html = '';
+                recent.slice(0, 10).forEach(p => {
+                    let cleanText = p.text.substring(0, 110).replace(/\n/g, ' ') + (p.text.length > 110 ? '...' : '');
+                    html += `<li><a href="${p.link}" target="_blank" style="color: #e5e5e5; text-decoration: none;">${cleanText}</a></li>`;
+                });
+                document.getElementById('summary-feed').innerHTML = html;
+            } catch (e) {}
+        }
+
+        // News: Latest (16 Hours, Media, Green Timestamps, Just Now Fix)
+        async function fetchNews() {
+            try {
+                const [meObs, rnintel] = await Promise.all([
+                    scrapeTelegramChannel('me_observer_TG', true), 
+                    scrapeTelegramChannel('rnintel', true)
+                ]);
+                let posts = [...meObs, ...rnintel]
+                    .filter(p => (Date.now() - p.date.getTime()) <= 16 * 3600000) 
+                    .sort((a,b) => b.date - a.date);
+
+                if (!posts.length) return;
+                
+                let html = ''; 
+                posts.slice(0, 30).forEach(p => {
+                    const diffMins = Math.max(0, Math.floor((Date.now() - p.date.getTime()) / 60000));
+                    let tStr = `<span style="color: #22c55e; font-weight: bold;">${diffMins < 1 ? "Just now" : diffMins > 60 ? Math.floor(diffMins/60) + "h ago" : diffMins + "m ago"}</span>`;
+                    html += `<div class="sc-list-item" style="flex-direction: column;">
+                                <div style="display:flex; gap:10px;">
+                                    <div class="icon-warn">~</div>
+                                    <div class="sc-content" style="width: 100%;">
+                                        <div style="font-weight: 600; color: #fff;">${p.channel.replace('_TG','').toUpperCase()} · ${tStr}</div>
+                                        <div style="margin-top: 4px;"><a href="${p.link}" target="_blank">${p.text}</a></div>
+                                        ${p.mediaHTML}
+                                    </div>
+                                </div>
+                            </div>`;
+                });
+                document.getElementById('news-feed').innerHTML = html;
+            } catch (e) {}
+        }
+
+        // News: Iran (16 Hours, Media, Green Timestamps, Just Now Fix)
+        async function fetchIranNews() {
+            try {
+                let posts = await scrapeTelegramChannel('presstv', true);
+                posts = posts.filter(p => (Date.now() - p.date.getTime()) <= 16 * 3600000).sort((a,b) => b.date - a.date);
+                let html = '';
+                posts.slice(0, 30).forEach(p => {
+                    const diffMins = Math.max(0, Math.floor((Date.now() - p.date.getTime()) / 60000));
+                    let tStr = `<span style="color: #22c55e; font-weight: bold;">${diffMins < 1 ? "Just now" : diffMins > 60 ? Math.floor(diffMins/60) + "h ago" : diffMins + "m ago"}</span>`;
+                    html += `<div class="sc-list-item" style="flex-direction: column;">
+                                <div style="display:flex; gap:10px;">
+                                    <div class="icon-alert">!</div>
+                                    <div class="sc-content" style="width: 100%;">
+                                        <div style="font-weight: 600; color: #fff;">PRESS TV · ${tStr}</div>
+                                        <div style="margin-top: 4px;"><a href="${p.link}" target="_blank">${p.text}</a></div>
+                                        ${p.mediaHTML}
+                                    </div>
+                                </div>
+                            </div>`;
+                });
+                document.getElementById('iran-news-feed').innerHTML = html || '<div style="padding:20px; text-align:center; color:#888;">No recent broadcasts.</div>';
+            } catch (e) {}
+        }
+
+        // News: Media Only (Images & Videos from last 24H)
+        async function fetchMediaOnly() {
+            try {
+                const [meObs, presstv] = await Promise.all([
+                    scrapeTelegramChannel('me_observer_TG', true), 
+                    scrapeTelegramChannel('presstv', true)
+                ]);
+                let posts = [...meObs, ...presstv]
+                    .filter(p => p.mediaHTML !== '' && (Date.now() - p.date.getTime()) <= 24 * 3600000) 
+                    .sort((a,b) => b.date - a.date);
+
+                if (!posts.length) return document.getElementById('media-feed').innerHTML = '<div style="padding:20px; text-align:center; color:#888;">No recent media events.</div>';
+                
+                let html = ''; 
+                posts.forEach(p => {
+                    const diffMins = Math.max(0, Math.floor((Date.now() - p.date.getTime()) / 60000));
+                    let tStr = `<span style="color: #22c55e; font-weight: bold;">${diffMins < 1 ? "Just now" : diffMins > 60 ? Math.floor(diffMins/60) + "h ago" : diffMins + "m ago"}</span>`;
+                    html += `<div class="sc-list-item" style="flex-direction: column; border-bottom: 1px solid var(--border-color); padding-bottom: 15px;">
+                                <div style="display:flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                    <div style="font-weight: 600; color: #fff;">${p.channel.replace('_TG','').toUpperCase()}</div>
+                                    <div>${tStr}</div>
+                                </div>
+                                ${p.mediaHTML}
+                                <div style="margin-top: 8px; color: var(--text-primary); font-size: 0.85rem;"><a href="${p.link}" target="_blank" style="text-decoration:none;">${p.text}</a></div>
+                            </div>`;
+                });
+                document.getElementById('media-feed').innerHTML = html;
+            } catch (e) {}
+        }
+
+
+        // ==========================================
+        // KINETIC MAP TRACKER: FIXED DOTS WITH ANTI-OVERLAP DEDUPLICATION
+        // ==========================================
+        let currentFilterHours = 720; 
+
+        const map = new maplibregl.Map({
+            container: 'map',
+            style: {
+                "version": 8,
+                "sources": { "carto-dark": { "type": "raster", "tiles": ["https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"], "tileSize": 256 } },
+                "layers": [{"id": "carto-dark-layer", "type": "raster", "source": "carto-dark", "minzoom": 0, "maxzoom": 22}]
+            },
+            center: [45.0, 28.0], zoom: 4.2, pitch: 40, bearing: 0
+        });
+
+        // Expanded Baseline Data including recent Tel Aviv activity
+        let globalIntelData = [
+            { id: "b0a", title: "Heavy Airstrikes & Interceptions over Central Israel", location: "TEL AVIV", lat: 32.0853, lng: 34.7818, eventType: "missile", timeAgo: 2, source: "Historical Intel" },
+            { id: "b0b", title: "Multiple Air Sirens Sounded", location: "TEL AVIV", lat: 32.0853, lng: 34.7818, eventType: "siren", timeAgo: 5, source: "Historical Intel" },
+            { id: "b1", title: "Drone Attack (Partial terminal damage)", location: "DUBAI INTL AIRPORT", lat: 25.2532, lng: 55.3657, eventType: "drone", timeAgo: 48, source: "Historical Intel" },
+            { id: "b2", title: "Drone & Missile Attack (Berth fire)", location: "JEBEL ALI PORT", lat: 24.9857, lng: 55.0273, eventType: "missile", timeAgo: 48, source: "Historical Intel" },
+            { id: "b3", title: "Drone Debris Strike", location: "BURJ AL ARAB", lat: 25.1412, lng: 55.1852, eventType: "drone", timeAgo: 48, source: "Historical Intel" },
+            { id: "b4", title: "Drone Attack", location: "ZAYED INTL AIRPORT", lat: 24.4330, lng: 54.6511, eventType: "drone", timeAgo: 48, source: "Historical Intel" },
+            { id: "b5", title: "Drone Attack", location: "AL SALAM NAVAL BASE", lat: 24.4830, lng: 54.6811, eventType: "drone", timeAgo: 48, source: "Historical Intel" },
+            { id: "b6", title: "Drone Attack (Resulted in limited fire)", location: "US EMBASSY RIYADH", lat: 24.6811, lng: 46.6222, eventType: "drone", timeAgo: 10, source: "Historical Intel" },
+            { id: "b7", title: "Drone Attack / Interception (Debris caused fire)", location: "RAS TANURA REFINERY", lat: 26.6669, lng: 50.1110, eventType: "intercept", timeAgo: 30, source: "Historical Intel" },
+            { id: "b8", title: "Missiles Intercepted", location: "KING KHALID INTL AIRPORT", lat: 24.9576, lng: 46.6975, eventType: "intercept", timeAgo: 55, source: "Historical Intel" },
+            { id: "b9", title: "Missiles & Drones Intercepted", location: "RIYADH AIRSPACE", lat: 24.7136, lng: 46.7167, eventType: "intercept", timeAgo: 80, source: "Historical Intel" },
+            { id: "b10", title: "Missiles Intercepted / Air Sirens", location: "JERUSALEM", lat: 31.7683, lng: 35.2137, eventType: "siren", timeAgo: 35, source: "Historical Intel" },
+            { id: "b11", title: "Missiles Intercepted / Air Sirens", location: "TEL AVIV", lat: 32.0853, lng: 34.7818, eventType: "siren", timeAgo: 60, source: "Historical Intel" },
+            { id: "b12", title: "Drone Attack", location: "US EMBASSY KUWAIT", lat: 29.2891, lng: 48.0034, eventType: "drone", timeAgo: 12, source: "Historical Intel" },
+            { id: "b13", title: "Drone Attack", location: "CAMP BUEHRING", lat: 29.6967, lng: 47.6744, eventType: "drone", timeAgo: 50, source: "Historical Intel" },
+            { id: "b14", title: "Missile Strike", location: "ALI AL SALEM AIR BASE", lat: 29.3467, lng: 47.5206, eventType: "missile", timeAgo: 82, source: "Historical Intel" },
+            { id: "b15", title: "Drone Attack", location: "KUWAIT INTL AIRPORT", lat: 29.2266, lng: 47.9689, eventType: "drone", timeAgo: 85, source: "Historical Intel" },
+            { id: "b16", title: "Missile Strike", location: "SALMAN PORT", lat: 26.2169, lng: 50.6063, eventType: "missile", timeAgo: 14, source: "Historical Intel" },
+            { id: "b17", title: "Drone Attack", location: "CROWNE PLAZA MANAMA", lat: 26.2415, lng: 50.5898, eventType: "drone", timeAgo: 55, source: "Historical Intel" },
+            { id: "b18", title: "Missile & Drone Attack", location: "NAVAL SUPPORT ACTIVITY", lat: 26.2081, lng: 50.6068, eventType: "missile", timeAgo: 88, source: "Historical Intel" },
+            { id: "b19", title: "Missiles Intercepted (2 Ballistic Missiles)", location: "QATAR (UNSPECIFIED)", lat: 25.2854, lng: 51.5310, eventType: "intercept", timeAgo: 10, source: "Historical Intel" },
+            { id: "b20", title: "Drone Attack", location: "MESAIEED POWER PLANT", lat: 24.9928, lng: 51.5583, eventType: "drone", timeAgo: 32, source: "Historical Intel" },
+            { id: "b21", title: "Drone Attack", location: "RAS LAFFAN FACILITY", lat: 25.8897, lng: 51.5459, eventType: "drone", timeAgo: 34, source: "Historical Intel" },
+            { id: "b22", title: "Missiles Intercepted (Debris caused fire)", location: "DOHA INDUSTRIAL AREA", lat: 25.1764, lng: 51.4503, eventType: "intercept", timeAgo: 58, source: "Historical Intel" },
+            { id: "b23", title: "Heavy Airstrikes & Missile Attacks", location: "TEHRAN", lat: 35.6892, lng: 51.3890, eventType: "missile", timeAgo: 15, source: "Historical Intel" },
+            { id: "b24", title: "Heavy Airstrikes & Missile Attacks", location: "ISFAHAN", lat: 32.7410, lng: 51.8650, eventType: "missile", timeAgo: 16, source: "Historical Intel" }
+        ];
+
+        const geoDB = {
+            "tel aviv": { coords: [34.7818, 32.0853], aliases: ["tel aviv", "tel-aviv", "gush dan", "central israel", "jaffa", "herzliya", "petah tikva"] },
+            "jerusalem": { coords: [35.2137, 31.7683], aliases: ["jerusalem", "al-quds"] },
+            "haifa": { coords: [34.9892, 32.7940], aliases: ["haifa", "carmel", "krayot"] },
+            "ashkelon": { coords: [34.5715, 31.6688], aliases: ["ashkelon"] },
+            "gaza": { coords: [34.4668, 31.5017], aliases: ["gaza", "rafah", "jabalia", "khan younis"] },
+            "beirut": { coords: [35.5018, 33.8938], aliases: ["beirut", "dahieh"] },
+            "tyre": { coords: [35.2038, 33.2733], aliases: ["tyre", "sour"] },
+            "damascus": { coords: [36.2913, 33.5138], aliases: ["damascus"] },
+            "tehran": { coords: [51.3890, 35.6892], aliases: ["tehran"] },
+            "isfahan": { coords: [51.8650, 32.7410], aliases: ["isfahan", "esfahan"] },
+            "baghdad": { coords: [44.3615, 33.3128], aliases: ["baghdad"] },
+            "sanaa": { coords: [44.2064, 15.3694], aliases: ["sanaa"] }
+        };
+
+        function determineEventType(text) {
+            let t = text.toLowerCase();
+            if (t.includes("intercept")) return "intercept"; // Grey
+            if (t.includes("siren") || t.includes("red alert") || t.includes("alarm")) return "siren"; // Blue
+            if (t.includes("drone") || t.includes("uav") || t.includes("swarm")) return "drone"; // Orange
+            return "missile"; // Red
+        }
+
+        async function fetchLiveOSINT() {
+            try {
+                const [amkData, rnintelData] = await Promise.all([
+                    scrapeTelegramChannel('AMK_Mapping', false),
+                    scrapeTelegramChannel('rnintel', false)
+                ]);
+                const posts = [...amkData, ...rnintelData];
+                
+                const liveData = [];
+                const now = Date.now(); 
+                const kineticKeywords = ['missile', 'siren', 'alert', 'strike', 'attack', 'intercept', 'drone', 'uav', 'rocket', 'bomb', 'explosion'];
+
+                posts.forEach(post => {
+                    const title = post.text;
+                    const timeAgoHours = (now - post.date.getTime()) / 3600000;
+                    
+                    if(kineticKeywords.some(kw => title.toLowerCase().includes(kw))) {
+                        let detectedLoc = null, lat = null, lng = null;
+                        
+                        // Strict Aliased Match
+                        for (const [key, geoData] of Object.entries(geoDB)) {
+                            if (geoData.aliases.some(alias => title.toLowerCase().includes(alias))) {
+                                detectedLoc = key.toUpperCase(); 
+                                lng = geoData.coords[0]; 
+                                lat = geoData.coords[1]; 
+                                break;
+                            }
+                        }
+                        
+                        if (!detectedLoc) {
+                            if (title.toLowerCase().includes("israel")) { detectedLoc = "ISRAEL (GENERAL)"; lng = 34.8516; lat = 31.0461; }
+                            else if (title.toLowerCase().includes("lebanon")) { detectedLoc = "LEBANON (GENERAL)"; lng = 35.8623; lat = 33.8547; }
+                            else if (title.toLowerCase().includes("syria")) { detectedLoc = "SYRIA (GENERAL)"; lng = 38.9968; lat = 34.8021; }
+                        }
+
+                        if (detectedLoc) {
+                            liveData.push({
+                                id: Math.random().toString(), title: title, eventType: determineEventType(title),
+                                lat: lat, lng: lng, location: detectedLoc, timeAgo: timeAgoHours, source: post.channel.toUpperCase()
+                            });
+                        }
+                    }
+                });
+
+                // SPATIAL-TEMPORAL DEDUPLICATION
+                const uniqueLiveData = [];
+                liveData.forEach(event => {
+                    const isDuplicate = uniqueLiveData.some(existing => 
+                        existing.location === event.location && 
+                        existing.eventType === event.eventType &&
+                        Math.abs(existing.timeAgo - event.timeAgo) < 2 // Group incidents inside a 2-hour window
+                    );
+                    if(!isDuplicate) {
+                        event.lat += (Math.random()-0.5)*0.03;
+                        event.lng += (Math.random()-0.5)*0.03;
+                        uniqueLiveData.push(event);
+                    }
+                });
+
+                const filteredBaseline = globalIntelData.filter(b => b.source === "Historical Intel" && !uniqueLiveData.some(live => 
+                    live.location === b.location && live.eventType === b.eventType && Math.abs(live.timeAgo - b.timeAgo) < 12
+                ));
+                
+                globalIntelData = [...uniqueLiveData, ...filteredBaseline];
+                renderMapData();
+            } catch (err) { console.error("OSINT Failed"); }
+        }
+
+        let activeMapMarkers = [];
+
+        function flyToLoc(lng, lat) {
+            map.flyTo({ center: [lng, lat], zoom: 9, essential: true, speed: 1.5 });
+        }
+
+        function setFilter(hours) {
+            currentFilterHours = hours;
+            document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
+            document.getElementById(`btn-${hours}`).classList.add('active');
+            renderMapData();
+        }
+
+        function renderMapData() {
+            activeMapMarkers.forEach(m => m.remove());
+            activeMapMarkers = [];
+
+            const feedElement = document.getElementById('feed');
+            feedElement.innerHTML = '';
+            const filtered = globalIntelData.filter(d => d.timeAgo <= currentFilterHours).sort((a,b) => a.timeAgo - b.timeAgo);
+
+            if (!filtered.length) {
+                feedElement.innerHTML = '<div style="color: #666; text-align: center; padding: 20px 0;">NO DETECTIONS IN TIMEFRAME</div>';
+                return;
+            }
+
+            filtered.forEach(strike => {
+                // FIXED JUST NOW LOGIC FOR SIDEBAR
+                let timeText = strike.timeAgo < (1/60) ? "JUST NOW" : strike.timeAgo < 24 ? `T-MINUS ${Math.floor(strike.timeAgo)}H` : `T-MINUS ${Math.floor(strike.timeAgo/24)}D`;
+                
+                let hex = '#ef4444'; // Red
+                if (strike.eventType === 'siren') hex = '#3b82f6';
+                else if (strike.eventType === 'drone') hex = '#f97316';
+                else if (strike.eventType === 'intercept') hex = '#9ca3af';
+
+                feedElement.insertAdjacentHTML('beforeend', `
+                    <div class="feed-entry ${strike.eventType}" onclick="flyToLoc(${strike.lng}, ${strike.lat})">
+                        <div class="entry-time"><span style="color:${hex}">[ NODE: ${strike.source} ]</span><span>${timeText}</span></div>
+                        <div class="entry-desc"><strong>${strike.location}:</strong> ${strike.title.substring(0,75)}${strike.title.length>75?'...':''}</div>
+                    </div>
+                `);
+
+                // CREATE MARKER
+                const el = document.createElement('div');
+                el.className = 'map-dot';
+                el.style.backgroundColor = hex;
+                
+                // ONLY BLINK IF <= 6 HOURS OLD
+                if (strike.timeAgo <= 6) {
+                    const ring = document.createElement('div');
+                    ring.className = 'map-pulse-ring';
+                    ring.style.borderColor = hex;
+                    el.appendChild(ring);
+                }
+
+                const popupHTML = `
+                    <div style="display:flex; justify-content:space-between; margin-bottom: 6px; border-bottom: 1px solid #333; padding-bottom: 4px;">
+                        <strong style="color:${hex}; font-size:1.1em;">${strike.location}</strong>
+                        <span style="color:#aaa; font-size:0.8em; align-self:center;">${timeText}</span>
+                    </div>
+                    <div style="font-size:0.9em; line-height:1.4; margin-bottom: 8px; max-height: 120px; overflow-y: auto;">${strike.title}</div>
+                    <div style="font-size:0.7em; color:#888; text-transform:uppercase; border-top: 1px dashed #333; padding-top: 4px;">
+                        SOURCE: ${strike.source}
+                    </div>`;
+
+                const popup = new maplibregl.Popup({ offset: 10, closeOnClick: false }).setHTML(popupHTML);
+
+                // FIXED Anchor ensures pinpoint geometry placement at all zoom levels
+                const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
+                    .setLngLat([strike.lng, strike.lat])
+                    .setPopup(popup)
+                    .addTo(map);
+
+                activeMapMarkers.push(marker);
+            });
+        }
+
+        // --- TIMER & INIT ---
+        let secondsLeft = 600; 
+        function updateTimer() {
+            let mins = Math.floor(secondsLeft / 60);
+            let secs = secondsLeft % 60;
+            document.getElementById('timer-display').innerText = `${mins < 10 ? '0'+mins : mins}:${secs < 10 ? '0'+secs : secs}`;
+            if (secondsLeft <= 0) { secondsLeft = 600; fetchLiveOSINT(); } else { secondsLeft--; }
+        }
+
+        map.on('load', () => {
+            renderMapData(); 
+            Promise.allSettled([ fetchTicker(), fetchSummary(), fetchNews(), fetchIranNews(), fetchMediaOnly(), fetchLiveOSINT() ]);
+            
+            setInterval(() => {
+                Promise.allSettled([ fetchTicker(), fetchSummary(), fetchNews(), fetchMediaOnly() ]);
+                document.querySelectorAll('.auto-refresh-iframe').forEach(iframe => iframe.src = iframe.src);
+            }, 60000);
+            setInterval(fetchIranNews, 65000);
+            setInterval(updateTimer, 1000);
+        });
+
+    </script>
+</body>
+</html>
